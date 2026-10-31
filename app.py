@@ -5,6 +5,7 @@ import copy
 import ctypes
 import datetime
 import faulthandler
+from random import choice
 import sys
 import traceback
 
@@ -18,7 +19,7 @@ from config import APP_NAME, APP_ID, Settings, data_dir, read_json, write_json_a
 from note_window import NoteWindow, new_note_data
 from notes_list import NotesListWindow
 from settings_dialog import SettingsDialog
-from themes import MENU_QSS, app_icon
+from themes import MENU_QSS, NOTE_COLORS, app_icon
 
 SERVER_NAME = f"{APP_ID}.single-instance"
 
@@ -137,6 +138,8 @@ class Controller(QObject):
         if not self.visible:
             self.show_all()
         data = new_note_data(self.s)
+        previous_color = self.notes[-1].color().lower() if self.notes else None
+        data["color"] = choice([color for _, color in NOTE_COLORS if color.lower() != previous_color])
         data["x"], data["y"] = self._next_pos(data["w"], data["h"])
         self._add(data).focus_editor()
         self.save_soon()

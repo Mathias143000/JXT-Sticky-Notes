@@ -21,6 +21,7 @@ Desktop application built with Python and PySide6, based on [jxtsidhu/JXT-Sticky
 ## Features
 
 - **Notes list**: one searchable library of all notes, including closed notes, sorted by last edit
+- **Random note colors**: each new note gets a saved palette color different from the previous note
 - **Close without deleting**: `×`, `Ctrl+W`, and `Alt+F4` save and close a note; reopen it from the list
 - **Windows-style UI**: white library, paper-colored cards, square corners, colored note headers
 - **Folding header and formatting bar**: animate into view on hover or while editing; fold away on inactive notes
