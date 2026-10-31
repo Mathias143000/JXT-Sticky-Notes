@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
 
 from config import APP_NAME, AUTHOR, REPO_URL, VERSION, data_dir
 from themes import ACCENT, app_icon
-from widgets import ColorChip, SwatchRow, ToggleSwitch
+from widgets import ColorChip, SmoothScroll, SwatchRow, ToggleSwitch
 
 DIALOG_QSS = """
 QDialog { background: #15171C; }
@@ -138,6 +138,7 @@ class SettingsDialog(QDialog):
     # ------------------------------------------------------------ builders
     def _page(self, title: str, subtitle: str):
         scroll = QScrollArea()
+        scroll.smooth_scroll = SmoothScroll(scroll)
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         body = QWidget()

@@ -5,7 +5,6 @@ import copy
 import ctypes
 import datetime
 import faulthandler
-from random import choice
 import sys
 import traceback
 
@@ -44,6 +43,8 @@ class Controller(QObject):
         self._last_top = settings["always_on_top"]
         self._last_auto = settings["start_with_windows"]
         self._save_failed = False
+        self._next_color_index = 0
+        self._dirty_notes = set()
 
         self.library = NotesListWindow()
         self.library.new_requested.connect(self.new_note)
@@ -104,10 +105,18 @@ class Controller(QObject):
                 data = new_note_data(self.s)
                 data.update({k: v for k, v in item.items() if k in data})
                 self._add(data)
+        saved_index = raw.get("next_color_index") if isinstance(raw, dict) else None
+        if isinstance(saved_index, int) and saved_index >= 0:
+            self._next_color_index = saved_index % len(NOTE_COLORS)
+        elif self.notes:
+            colors = [color.lower() for _, color in NOTE_COLORS]
+            last = self.notes[-1].color().lower()
+            self._next_color_index = (colors.index(last) + 1) % len(colors) if last in colors else 0
         if not items and not self._path.exists():
             data = new_note_data(self.s, text=WELCOME)
             data["x"], data["y"] = self._next_pos(data["w"], data["h"])
             self._add(data)
+            self._next_color_index = 1
             self.save_now()
 
     def _next_pos(self, w: int, h: int) -> tuple[int, int]:
@@ -123,7 +132,7 @@ class Controller(QObject):
 
     def _add(self, data: dict) -> NoteWindow:
         w = NoteWindow(data, self.s)
-        w.changed.connect(self.save_soon)
+        w.changed.connect(lambda note=w: self._note_changed(note))
         w.new_requested.connect(self.new_note)
         w.delete_requested.connect(self.delete_note)
         w.duplicate_requested.connect(self.duplicate_note)
@@ -138,8 +147,8 @@ class Controller(QObject):
         if not self.visible:
             self.show_all()
         data = new_note_data(self.s)
-        previous_color = self.notes[-1].color().lower() if self.notes else None
-        data["color"] = choice([color for _, color in NOTE_COLORS if color.lower() != previous_color])
+        data["color"] = NOTE_COLORS[self._next_color_index][1]
+        self._next_color_index = (self._next_color_index + 1) % len(NOTE_COLORS)
         data["x"], data["y"] = self._next_pos(data["w"], data["h"])
         self._add(data).focus_editor()
         self.save_soon()
@@ -167,6 +176,7 @@ class Controller(QObject):
                 return
         if w in self.notes:
             self.notes.remove(w)
+        self._dirty_notes.discard(w)
         w.hide()
         w.deleteLater()
         self.save_now()
@@ -238,17 +248,30 @@ class Controller(QObject):
         self._library_timer.start()
         self.library.set_save_status("Сохранение…")
 
+    def _note_changed(self, note) -> None:
+        self._dirty_notes.add(note)
+        note.save_indicator.pending()
+        self.save_soon()
+
     def save_now(self) -> None:
         self._save_timer.stop()
         try:
-            write_json_atomic(self._path, {"version": 2, "notes": [w.snapshot() for w in self.notes]})
+            write_json_atomic(self._path, {
+                "version": 2, "next_color_index": self._next_color_index,
+                "notes": [w.snapshot() for w in self.notes],
+            })
             self.library.set_save_status("Все изменения сохранены")
             self._save_failed = False
+            for note in self._dirty_notes:
+                note.save_indicator.saved()
+            self._dirty_notes.clear()
         except OSError as error:
             self.library.set_save_status("Не удалось сохранить заметки. Проверьте доступ к папке данных.")
             if not self._save_failed:
                 self.tray.showMessage("Не удалось сохранить заметки", str(error), QSystemTrayIcon.Warning)
             self._save_failed = True
+            for note in self._dirty_notes:
+                note.save_indicator.failed()
         self.s.flush()
 
     # -------------------------------------------------------------- settings

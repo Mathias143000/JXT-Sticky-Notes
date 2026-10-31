@@ -1,7 +1,10 @@
 """Small custom-painted widgets shared by the notes and the settings window."""
 from __future__ import annotations
 
-from PySide6.QtCore import Property, QEasingCurve, QPointF, QPropertyAnimation, QRectF, Qt, Signal
+from PySide6.QtCore import (
+    Property, QAbstractAnimation, QEasingCurve, QEvent, QObject, QPointF,
+    QPropertyAnimation, QRectF, Qt, Signal,
+)
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QAbstractButton, QColorDialog, QHBoxLayout, QPushButton, QWidget
 
@@ -67,6 +70,10 @@ class IconButton(QAbstractButton):
             p.setBrush(col)
             for dx in (-5, 0, 5):
                 p.drawEllipse(QPointF(cx + dx, cy), 1.7, 1.7)
+        elif self.kind == "back":
+            p.drawLine(QPointF(cx + 5, cy), QPointF(cx - 5, cy))
+            p.drawLine(QPointF(cx - 5, cy), QPointF(cx, cy - 5))
+            p.drawLine(QPointF(cx - 5, cy), QPointF(cx, cy + 5))
         elif self.kind == "pin":
             p.translate(cx, cy)
             p.rotate(35)
@@ -94,6 +101,144 @@ class IconButton(QAbstractButton):
             p.drawEllipse(QPointF(cx + 3, cy - 2), 1.3, 1.3)
             p.drawLine(QPointF(cx - 8, cy + 4), QPointF(cx - 3, cy - 1))
             p.drawLine(QPointF(cx - 3, cy - 1), QPointF(cx + 4, cy + 6))
+
+
+class ListButton(IconButton):
+    """Distinguish a single list click from a double checklist click."""
+
+    single_clicked = Signal()
+    double_clicked = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__("list", "Список · двойной клик: чек-лист", parent)
+        self._double_release = False
+        self.clicked.connect(self.single_clicked.emit)
+
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._double_release = True
+            self.setDown(False)
+            self.double_clicked.emit()
+            event.accept()
+        else:
+            super().mouseDoubleClickEvent(event)
+
+    def mousePressEvent(self, event):
+        self._double_release = False
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if self._double_release:
+            self._double_release = False
+            self.setDown(False)
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+
+class SmoothScroll(QObject):
+    """Interpolate mouse-wheel notches; preserve native touchpad pixel deltas."""
+
+    def __init__(self, area):
+        super().__init__(area)
+        self.area = area
+        self.bar = area.verticalScrollBar()
+        self.animation = QPropertyAnimation(self.bar, b"value", self)
+        self.animation.setDuration(170)
+        self.animation.setEasingCurve(QEasingCurve.OutCubic)
+        self.target = self.bar.value()
+        self.bar.sliderPressed.connect(self.animation.stop)
+        self.bar.actionTriggered.connect(lambda _: self.animation.stop())
+        self.bar.rangeChanged.connect(lambda *_: self.animation.stop())
+        area.viewport().installEventFilter(self)
+        area.installEventFilter(self)
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.KeyPress:
+            self.animation.stop()
+            return False
+        if event.type() != QEvent.Wheel or event.modifiers() & Qt.ControlModifier:
+            return False
+        if not event.angleDelta().y() and not event.pixelDelta().y():
+            return False
+        if self.bar.maximum() <= self.bar.minimum():
+            return False
+        if event.pixelDelta().y():
+            self.animation.stop()
+            self.bar.setValue(self.bar.value() - event.pixelDelta().y())
+        else:
+            start = self.bar.value()
+            target = self.target if self.animation.state() == QAbstractAnimation.Running else start
+            distance = max(36, self.bar.singleStep() * 3)
+            self.target = max(self.bar.minimum(), min(self.bar.maximum(),
+                round(target - event.angleDelta().y() / 120 * distance)))
+            self.animation.stop()
+            self.animation.setStartValue(start)
+            self.animation.setEndValue(self.target)
+            self.animation.start()
+        event.accept()
+        return True
+
+
+class SaveIndicator(QWidget):
+    """A short vector check animation, shown only after a successful disk write."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(20, 22)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self._phase = 1.0
+        self.color = QColor("#437A46")
+        self.state = "clean"
+        self.animation = QPropertyAnimation(self, b"phase", self)
+        self.animation.setDuration(1250)
+        self.animation.setStartValue(0.0)
+        self.animation.setEndValue(1.0)
+
+    def _get_phase(self):
+        return self._phase
+
+    def _set_phase(self, value):
+        self._phase = value
+        self.update()
+
+    phase = Property(float, _get_phase, _set_phase)
+
+    def pending(self):
+        self.animation.stop()
+        self.state = "pending"
+        self.setToolTip("Сохранение…")
+        self.update()
+
+    def saved(self):
+        self.state = "saved"
+        self.setToolTip("Сохранено")
+        self.animation.stop()
+        self.animation.start()
+
+    def failed(self):
+        self.animation.stop()
+        self.state = "error"
+        self.setToolTip("Не удалось сохранить")
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        if self.state == "error":
+            painter.setPen(QPen(QColor("#B83E3E"), 1.6))
+            painter.drawLine(10, 5, 10, 12)
+            painter.drawPoint(10, 16)
+        elif self.state == "saved" and self._phase < 1:
+            painter.setOpacity(min(1.0, (1 - self._phase) / .22))
+            painter.setPen(QPen(self.color, 1.8, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+            progress = min(1.0, self._phase / .18)
+            a, b, c = QPointF(4, 11), QPointF(8, 15), QPointF(16, 6)
+            if progress < .35:
+                painter.drawLine(a, a + (b - a) * (progress / .35))
+            else:
+                painter.drawLine(a, b)
+                painter.drawLine(b, b + (c - b) * ((progress - .35) / .65))
 
 
 class ToggleSwitch(QAbstractButton):

@@ -10,9 +10,9 @@ from PySide6.QtWidgets import (
     QMenu, QStyle, QStyledItemDelegate, QVBoxLayout,
 )
 
-from note_window import Card, Grip, HeaderBar, M, PaperWindow
+from note_window import Card, HeaderBar, M, PaperWindow
 from themes import MENU_QSS, auto_text
-from widgets import IconButton
+from widgets import IconButton, SmoothScroll
 
 
 class NoteDelegate(QStyledItemDelegate):
@@ -135,6 +135,7 @@ class NotesListWindow(PaperWindow):
         self.list.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.smooth_scroll = SmoothScroll(self.list)
         body.addWidget(self.list, 1)
         self.empty = QLabel("Пока нет заметок.\nНажмите +, чтобы создать первую.")
         self.empty.setAlignment(Qt.AlignCenter)
@@ -146,7 +147,6 @@ class NotesListWindow(PaperWindow):
         self.status.setStyleSheet("font-size: 11px; color: #777777;")
         self.status.setWordWrap(True)
         bottom.addWidget(self.status, 1)
-        bottom.addWidget(Grip(), 0, Qt.AlignBottom)
         body.addLayout(bottom)
 
         self.btn_new.clicked.connect(self.new_requested.emit)
@@ -162,7 +162,10 @@ class NotesListWindow(PaperWindow):
         self._render()
 
     def set_notes(self, notes: list[dict]) -> None:
-        self._notes = sorted(notes, key=lambda n: n.get("updated_at") or "", reverse=True)
+        notes = sorted(notes, key=lambda n: n.get("updated_at") or "", reverse=True)
+        if notes == self._notes:
+            return
+        self._notes = notes
         self._render()
 
     def _render(self) -> None:

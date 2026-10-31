@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import ctypes
 from ctypes import wintypes
+import math
 from pathlib import Path
 import sys
 
@@ -30,8 +31,14 @@ def screen_pixels(widget):
     image = ImageGrab.grab(
         bbox=(rect.left, rect.top, rect.right, rect.bottom), include_layered_windows=True)
     # Exclude the transparent outer margin, where other applications may change.
-    margin = round(M * image.width / widget.width()) + 1
-    return image.crop((margin, margin, image.width - margin, image.height - margin))
+    # Inset in logical coordinates before converting to physical pixels. At
+    # fractional DPI a symmetric integer crop can retain half a transparent
+    # bottom edge, whose pixels legitimately depend on the desktop behind it.
+    sx, sy = image.width / widget.width(), image.height / widget.height()
+    inset = M + 2
+    return image.crop((math.ceil(inset * sx), math.ceil(inset * sy),
+                       math.floor((widget.width() - inset) * sx),
+                       math.floor((widget.height() - inset) * sy)))
 
 
 def main():
@@ -85,6 +92,8 @@ def main():
         QTest.qWait(100)
         note.resize(note_size)
         library.resize(library_size)
+        note.save_indicator.saved()
+        QTest.qWait(1350)
         QTest.qWait(250)
         failures = []
         for name, widget in windows.items():
