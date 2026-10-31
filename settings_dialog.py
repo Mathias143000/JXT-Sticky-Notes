@@ -325,7 +325,7 @@ class SettingsDialog(QDialog):
         self._toggle(g, "shadow", "Drop shadow", "A soft shadow that lifts notes off the desktop.")
 
         g = self._group(lay, "New notes")
-        self._spin(g, "note_width", "Default width", "Size of newly created notes.", 180, 900)
+        self._spin(g, "note_width", "Default width", "Size of newly created notes.", 276, 900)
         self._spin(g, "note_height", "Default height", "", 120, 900)
         lay.addStretch(1)
         return page
@@ -347,6 +347,9 @@ class SettingsDialog(QDialog):
         for keys, what in (
             ("Ctrl + N", "New note"),
             ("Ctrl + B / I", "Bold / italic"),
+            ("Ctrl + U", "Underline"),
+            ("Ctrl + W", "Close note and keep it in the notes list"),
+            ("Ctrl + H", "Open notes list"),
             ("Ctrl + Shift + X", "Strikethrough"),
             ("Ctrl + Shift + L", "Bulleted list"),
             ("Double-click title bar", "Collapse / expand a note"),

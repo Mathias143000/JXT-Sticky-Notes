@@ -20,6 +20,7 @@ class IconButton(QAbstractButton):
         self.setFixedSize(26, 26)
         self.setCursor(Qt.PointingHandCursor)
         self.setToolTip(tip)
+        self.setAccessibleName(tip)
         self.setFocusPolicy(Qt.NoFocus)
 
     def set_color(self, color: str) -> None:
@@ -74,6 +75,25 @@ class IconButton(QAbstractButton):
             p.drawRoundedRect(QRectF(-3.2, -7, 6.4, 8.5), 1.6, 1.6)
             p.drawLine(QPointF(-5, 1.5), QPointF(5, 1.5))
             p.drawLine(QPointF(0, 1.5), QPointF(0, 7))
+        elif self.kind == "search":
+            p.drawEllipse(QRectF(cx - 6, cy - 7, 10, 10))
+            p.drawLine(QPointF(cx + 2, cy + 1), QPointF(cx + 7, cy + 6))
+        elif self.kind == "settings":
+            p.drawEllipse(QPointF(cx, cy), 3, 3)
+            p.drawEllipse(QPointF(cx, cy), 7, 7)
+            p.translate(cx, cy)
+            for _ in range(8):
+                p.drawLine(QPointF(0, -7), QPointF(0, -9))
+                p.rotate(45)
+        elif self.kind == "list":
+            for dy in (-5, 0, 5):
+                p.drawPoint(QPointF(cx - 7, cy + dy))
+                p.drawLine(QPointF(cx - 3, cy + dy), QPointF(cx + 7, cy + dy))
+        elif self.kind == "image":
+            p.drawRect(QRectF(cx - 8, cy - 6, 16, 12))
+            p.drawEllipse(QPointF(cx + 3, cy - 2), 1.3, 1.3)
+            p.drawLine(QPointF(cx - 8, cy + 4), QPointF(cx - 3, cy - 1))
+            p.drawLine(QPointF(cx - 3, cy - 1), QPointF(cx + 4, cy + 6))
 
 
 class ToggleSwitch(QAbstractButton):

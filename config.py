@@ -12,7 +12,7 @@ APP_NAME = "JXT Sticky Notes"
 APP_ID = "JXTStickyNotes"
 VERSION = "1.0.0"
 AUTHOR = "Jxt Sidhu"
-REPO_URL = "https://github.com/jxtsidhu/JXT-Sticky-Notes"
+REPO_URL = "https://github.com/Mathias143000/JXT-Sticky-Notes"
 
 DEFAULTS: dict = {
     # General
@@ -22,16 +22,16 @@ DEFAULTS: dict = {
     "hover_controls": True,
     "confirm_delete": True,
     # Appearance
-    "default_color": "#FFF1A8",
+    "default_color": "#FFF7CE",
     "auto_text": True,
     "text_color": "#23262B",
     "font_family": "Segoe UI",
     "font_size": 12,
     "opacity": 100,
-    "corner_radius": 14,
+    "corner_radius": 0,
     "shadow": True,
-    "note_width": 300,
-    "note_height": 320,
+    "note_width": 380,
+    "note_height": 300,
 }
 
 

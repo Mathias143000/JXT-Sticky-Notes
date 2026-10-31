@@ -7,7 +7,7 @@ from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap
 ACCENT = "#7C9CFF"
 
 NOTE_COLORS = [
-    ("Butter", "#FFF1A8"),
+    ("Butter", "#FFF7CE"),
     ("Peach", "#FFD5BC"),
     ("Rose", "#FFCAD8"),
     ("Lavender", "#DDCEFF"),
@@ -40,12 +40,12 @@ def rgba(hex_color: str, alpha: float) -> str:
 
 
 MENU_QSS = """
-QMenu { background: #1B1E25; color: #E7E9EE; border: 1px solid #2E323C;
-        border-radius: 10px; padding: 6px; font-size: 13px; }
-QMenu::item { padding: 8px 24px 8px 14px; border-radius: 6px; margin: 1px 0; }
-QMenu::item:selected { background: #2B3040; }
-QMenu::item:disabled { color: #6C7282; }
-QMenu::separator { height: 1px; background: #2A2E38; margin: 6px 8px; }
+QMenu { background: #FFFFFF; color: #292929; border: 1px solid #D8D8D8;
+        padding: 5px; font-size: 13px; }
+QMenu::item { padding: 8px 24px 8px 14px; margin: 1px 0; }
+QMenu::item:selected { background: #EEEEEE; }
+QMenu::item:disabled { color: #888888; }
+QMenu::separator { height: 1px; background: #E4E4E4; margin: 6px 8px; }
 QMenu::indicator { width: 14px; height: 14px; left: 4px; }
 """
 

@@ -2,10 +2,10 @@
 
 <img src="icon.png" width="96" alt="JXT Sticky Notes icon" />
 
-# JXT Sticky Notes
+# JXT Sticky Notes — Windows UI fork
 
-**A clean, classy and fully customizable sticky notes app for Windows.**
-Lives in your system tray, starts with Windows, and stays out of your way.
+**Заметки в стиле Windows Sticky Notes: общий список, поиск и скрывающийся заголовок.**
+Desktop application built with Python and PySide6, based on [jxtsidhu/JXT-Sticky-Notes](https://github.com/jxtsidhu/JXT-Sticky-Notes).
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Platform: Windows](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-blue)
@@ -20,6 +20,12 @@ Lives in your system tray, starts with Windows, and stays out of your way.
 
 ## Features
 
+- **Notes list**: one searchable library of all notes, including closed notes, sorted by last edit
+- **Close without deleting**: `×`, `Ctrl+W`, and `Alt+F4` save and close a note; reopen it from the list
+- **Windows-style UI**: white library, paper-colored cards, square corners, colored note headers
+- **Folding header and formatting bar**: animate into view on hover or while editing; fold away on inactive notes
+- **Formatting toolbar**: bold, italic, underline, strikethrough, bullets, and embedded images
+- **Russian note and library interface**; the original customization settings remain available in English
 - **Auto-start with Windows** and **start minimized to the system tray**
 - **Unlimited notes**: frameless, draggable, resizable
 - **Always on top**: globally, or pin individual notes
@@ -30,9 +36,8 @@ Lives in your system tray, starts with Windows, and stays out of your way.
   - Note opacity (frosted glass look), corner roundness, drop shadow
   - Default size for new notes
 - **Per-note overrides**: color, transparency, text size, always-on-top
-- **Minimal by design**: controls only appear when you hover a note
+- **Minimal by design**: controls appear when you hover or edit a note
 - **Collapse** a note to its title bar with a double-click
-- **Light formatting**: bold, italic, strikethrough, bullet lists
 - **Autosave**: your notes and positions are restored exactly as you left them
 - **Single instance**: launching it again simply brings your notes forward
 - **Private**: everything is stored locally. No accounts, no network, no telemetry
@@ -43,7 +48,7 @@ Lives in your system tray, starts with Windows, and stays out of your way.
 
 ## Download
 
-Grab the latest `JXT-Sticky-Notes.exe` from the [**Releases**](../../releases) page and run it. No installer and no admin rights needed.
+Build this fork using the instructions below, or use a binary explicitly published in this fork's [Releases](https://github.com/Mathias143000/JXT-Sticky-Notes/releases). Upstream release binaries do not include this UI.
 
 > **Note:** the exe is not code-signed, so Windows SmartScreen may show a warning the first time.
 > Click **More info → Run anyway**, or build it yourself from source (below).
@@ -53,14 +58,20 @@ Grab the latest `JXT-Sticky-Notes.exe` from the [**Releases**](../../releases) p
 | Action | How |
 | --- | --- |
 | New note | `+` on a note, `Ctrl+N`, or the tray menu |
+| Open notes list | Click the tray icon, note menu → **Список заметок**, or `Ctrl+H` in a note |
+| Search / reopen saved notes | Type in **Поиск…** in the list; click a card or select it and press Enter |
+| Close and keep a note | `×`, `Ctrl+W`, or `Alt+F4` |
+| Permanently delete a note | Note `⋯` menu → **Удалить заметку**, or right-click its card in the list |
 | Move a note | Drag its top bar |
 | Resize | Drag the bottom-right corner |
 | Colors, transparency, text size, duplicate, delete | `⋯` menu on a note |
-| Keep a note on top | 📌 button on the note |
+| Keep a note on top | `⋯` menu → **Поверх других окон** |
 | Collapse / expand | Double-click the top bar |
-| Show / hide all notes | Click the tray icon |
+| Show / hide open notes | Tray menu → **Показать заметки / Скрыть заметки** |
 | Settings | Tray icon → **Settings…** |
 | Bold / italic | `Ctrl+B` / `Ctrl+I` |
+| Underline | `Ctrl+U` |
+| Insert image | Image button in the note's formatting bar; image data is saved inside the note |
 | Strikethrough | `Ctrl+Shift+X` |
 | Bullet list | `Ctrl+Shift+L` |
 
@@ -71,7 +82,7 @@ Grab the latest `JXT-Sticky-Notes.exe` from the [**Releases**](../../releases) p
 Requires Python 3.10+ on Windows.
 
 ```bash
-git clone https://github.com/jxtsidhu/JXT-Sticky-Notes.git
+git clone https://github.com/Mathias143000/JXT-Sticky-Notes.git
 cd JXT-Sticky-Notes
 python -m pip install -r requirements.txt
 python main.py
@@ -90,12 +101,25 @@ This installs the build tools, generates the icon and produces `dist\JXT-Sticky-
 Notes and settings are stored as plain JSON in `%APPDATA%\JXTStickyNotes\`
 (`notes.json` and `settings.json`). **Settings → About → Open data folder** takes you there. Copy the folder to back up or move your notes.
 
+This fork uses the same data folder as the original app. Existing notes load automatically, with their content, color, position, and collapsed state preserved. Back up the folder before switching between versions, and run one version at a time. Closed notes remain saved after restarting; showing all notes only restores notes that were open. The list is local to this application, without sync to Microsoft's Sticky Notes service.
+
+Notes save after 600 ms of inactivity and immediately on close or application exit. A save error is shown in the list and as a tray notification; unsaved notes remain in memory.
+
+## Validation
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+The tests use Qt's offscreen platform and temporary storage. They do not change real notes or Windows startup registration. They cover close/reopen across restarts, search, autosave, legacy data, formatting and embedded images, folding headers, duplication/deletion, and save errors.
+
 ## Project structure
 
 ```
 main.py             entry point
 app.py              controller, tray icon, single-instance logic
 note_window.py      the sticky note window
+notes_list.py       searchable library of open and closed notes
 settings_dialog.py  customization UI
 widgets.py          custom-painted controls
 themes.py           palette, styles, app icon
@@ -107,7 +131,7 @@ build.bat           builds the exe
 
 ## Contributing
 
-Issues and pull requests are welcome. Ideas on the wishlist: global hotkey for a new note, checklists, note search, import/export, and theme packs.
+Issues and pull requests are welcome. Ideas on the wishlist: global hotkey for a new note, checklists, import/export, and theme packs.
 
 ## License
 

@@ -3,24 +3,31 @@ from __future__ import annotations
 
 import re
 import uuid
+from datetime import datetime, timezone
 
-from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import (
+    QByteArray, QBuffer, QEasingCurve, QEvent, QIODevice, QParallelAnimationGroup,
+    QPoint, QPointF, QPropertyAnimation, QRectF, Qt, QTimer, Signal,
+)
 from PySide6.QtGui import (
     QActionGroup,
     QColor,
     QCursor,
     QFont,
     QGuiApplication,
+    QImageReader,
     QKeySequence,
     QPainter,
     QPalette,
     QPen,
     QShortcut,
     QTextCharFormat,
+    QTextImageFormat,
     QTextListFormat,
 )
 from PySide6.QtWidgets import (
     QColorDialog,
+    QFileDialog,
     QFrame,
     QGraphicsDropShadowEffect,
     QHBoxLayout,
@@ -29,6 +36,7 @@ from PySide6.QtWidgets import (
     QSizeGrip,
     QSizePolicy,
     QTextEdit,
+    QToolButton,
     QVBoxLayout,
     QWidget,
     QWidgetAction,
@@ -39,8 +47,8 @@ from themes import MENU_QSS, auto_text, is_dark, rgba
 from widgets import IconButton, SwatchRow
 
 M = 12  # transparent margin around the card (room for the shadow)
-HEADER_H = 36
-MIN_W, MIN_H = 220, 150
+HEADER_H = 40
+MIN_W, MIN_H = 300, 150
 
 
 def new_note_data(settings, x=None, y=None, text: str = "") -> dict:
@@ -56,6 +64,8 @@ def new_note_data(settings, x=None, y=None, text: str = "") -> dict:
         "opacity": None,  # None = follow Settings
         "font_size": None,  # None = follow Settings
         "collapsed": False,
+        "is_open": True,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
     }
 
 
@@ -136,12 +146,15 @@ class NoteWindow(QWidget):
     new_requested = Signal()
     delete_requested = Signal(object)
     duplicate_requested = Signal(object)
+    list_requested = Signal()
+    closed = Signal()
 
     def __init__(self, data: dict, settings):
         super().__init__()
         self.data = data
         self.s = settings
         self._hover = False
+        self._menu_open = False
         self._title_text = ""
         self._expanded_h = int(data["h"])
 
@@ -185,21 +198,23 @@ class NoteWindow(QWidget):
         lay.setSpacing(0)
 
         self.header = HeaderBar()
-        self.header.setFixedHeight(HEADER_H)
+        self.header.setObjectName("noteHeader")
+        self.header.setAttribute(Qt.WA_StyledBackground)
+        self.header.setMinimumHeight(0)
+        self.header.setMaximumHeight(HEADER_H)
+        self.header.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self.header.double_clicked.connect(lambda: self.set_collapsed(not self.data["collapsed"]))
         h = QHBoxLayout(self.header)
-        h.setContentsMargins(8, 6, 8, 0)
+        h.setContentsMargins(7, 7, 7, 7)
         h.setSpacing(2)
-        self.btn_new = IconButton("plus", "New note (Ctrl+N)")
-        self.btn_pin = IconButton("pin", "Keep on top")
-        self.btn_menu = IconButton("menu", "More options")
-        self.btn_close = IconButton("close", "Delete note")
+        self.btn_new = IconButton("plus", "Новая заметка (Ctrl+N)")
+        self.btn_menu = IconButton("menu", "Другие действия")
+        self.btn_close = IconButton("close", "Закрыть заметку (Ctrl+W)")
         self.title = QLabel("")
         self.title.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.title.setAttribute(Qt.WA_TransparentForMouseEvents)
         h.addWidget(self.btn_new)
         h.addWidget(self.title, 1)
-        h.addWidget(self.btn_pin)
         h.addWidget(self.btn_menu)
         h.addWidget(self.btn_close)
         lay.addWidget(self.header)
@@ -207,32 +222,75 @@ class NoteWindow(QWidget):
         self.editor = QTextEdit()
         self.editor.setFrameShape(QFrame.NoFrame)
         self.editor.setAcceptRichText(False)
-        self.editor.setPlaceholderText("Write something…")
-        self.editor.document().setDocumentMargin(14)
+        self.editor.setPlaceholderText("Напишите заметку…")
+        self.editor.document().setDocumentMargin(16)
         self.editor.document().setIndentWidth(18)
         self.editor.viewport().setAutoFillBackground(False)
         lay.addWidget(self.editor, 1)
 
         self.footer = QWidget()
-        self.footer.setFixedHeight(18)
+        self.footer.setObjectName("noteFooter")
+        self.footer.setAttribute(Qt.WA_StyledBackground)
+        self.footer.setMinimumHeight(0)
+        self.footer.setMaximumHeight(44)
+        self.footer.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         f = QHBoxLayout(self.footer)
-        f.setContentsMargins(0, 0, 4, 4)
+        f.setContentsMargins(7, 5, 4, 5)
+        f.setSpacing(4)
+        self.format_buttons = []
+        for label, tip, callback in (
+            ("B", "Полужирный (Ctrl+B)", self.toggle_bold),
+            ("I", "Курсив (Ctrl+I)", self.toggle_italic),
+            ("U", "Подчёркнутый (Ctrl+U)", self.toggle_underline),
+            ("ab", "Зачёркнутый (Ctrl+Shift+X)", self.toggle_strike),
+        ):
+            button = QToolButton()
+            button.setText(label)
+            button.setToolTip(tip)
+            button.setAccessibleName(tip)
+            button.setCheckable(True)
+            button.setFocusPolicy(Qt.NoFocus)
+            button.setFixedSize(36, 34)
+            font = QFont("Segoe UI", 13)
+            font.setBold(label == "B")
+            font.setItalic(label == "I")
+            font.setUnderline(label == "U")
+            font.setStrikeOut(label == "ab")
+            button.setFont(font)
+            button.clicked.connect(callback)
+            f.addWidget(button)
+            self.format_buttons.append(button)
+        self.btn_bullets = IconButton("list", "Маркированный список (Ctrl+Shift+L)")
+        self.btn_image = IconButton("image", "Добавить изображение")
+        self.btn_bullets.clicked.connect(self.toggle_bullets)
+        self.btn_image.clicked.connect(self.insert_image)
+        f.addWidget(self.btn_bullets)
+        f.addWidget(self.btn_image)
         f.addStretch(1)
         self.grip = Grip()
         f.addWidget(self.grip, 0, Qt.AlignRight | Qt.AlignBottom)
         lay.addWidget(self.footer)
 
+        self._chrome_animation = QParallelAnimationGroup(self)
+        for widget in (self.header, self.footer):
+            animation = QPropertyAnimation(widget, b"maximumHeight", self._chrome_animation)
+            animation.setDuration(140)
+            animation.setEasingCurve(QEasingCurve.OutCubic)
+            self._chrome_animation.addAnimation(animation)
+
         self.btn_new.clicked.connect(self.new_requested.emit)
-        self.btn_pin.clicked.connect(lambda: self.set_on_top(not self.data["on_top"]))
         self.btn_menu.clicked.connect(self.show_menu)
-        self.btn_close.clicked.connect(lambda: self.delete_requested.emit(self))
+        self.btn_close.clicked.connect(self.close)
         self.editor.textChanged.connect(self._on_text)
+        self.editor.currentCharFormatChanged.connect(self._sync_format_buttons)
+        self.editor.cursorPositionChanged.connect(self._sync_format_buttons)
 
         # Keyboard shortcuts
         ctx = Qt.WidgetWithChildrenShortcut
         for keys, fn in (
             ("Ctrl+B", self.toggle_bold),
             ("Ctrl+I", self.toggle_italic),
+            ("Ctrl+U", self.toggle_underline),
             ("Ctrl+Shift+X", self.toggle_strike),
             ("Ctrl+Shift+L", self.toggle_bullets),
         ):
@@ -242,6 +300,9 @@ class NoteWindow(QWidget):
         new_sc = QShortcut(QKeySequence("Ctrl+N"), self)
         new_sc.setContext(Qt.WindowShortcut)
         new_sc.activated.connect(self.new_requested.emit)
+        for keys, fn in (("Ctrl+W", self.close), ("Ctrl+H", self.list_requested.emit)):
+            shortcut = QShortcut(QKeySequence(keys), self)
+            shortcut.activated.connect(fn)
 
     # --------------------------------------------------------------- styling
     def color(self) -> str:
@@ -262,8 +323,15 @@ class NoteWindow(QWidget):
         fill = QColor(bg)
         fill.setAlphaF(max(0.0, min(1.0, self.opacity() / 100)))
         self.card.set_look(fill, border, int(s["corner_radius"]))
+        header_color = QColor(bg)
+        hue, saturation, value, _ = header_color.getHsvF()
+        header_color.setHsvF(hue, min(1.0, saturation * 1.8), value)
         self.card.setStyleSheet(
             f"""
+            QWidget#noteHeader {{ background: {rgba(header_color.name(), self.opacity() / 100)}; }}
+            QWidget#noteFooter {{ background: transparent; border-top: 1px solid {rgba(text, 0.10)}; }}
+            QToolButton {{ color: {text}; background: transparent; border: none; }}
+            QToolButton:hover, QToolButton:checked {{ background: {rgba(text, 0.10)}; }}
             QTextEdit {{ background: transparent; border: none; color: {text};
                          selection-background-color: {rgba(text, 0.28)}; }}
             QLabel {{ background: transparent; color: {rgba(text, 0.72)}; font-weight: 600; }}
@@ -284,9 +352,9 @@ class NoteWindow(QWidget):
         pal.setColor(QPalette.PlaceholderText, ph)
         self.editor.setPalette(pal)
 
-        for b in (self.btn_new, self.btn_pin, self.btn_menu, self.btn_close):
+        for b in (self.btn_new, self.btn_menu, self.btn_close,
+                  self.btn_bullets, self.btn_image):
             b.set_color(text)
-        self.btn_pin.set_active(self.data["on_top"])
         self.grip.color = QColor(text)
         self.grip.update()
 
@@ -306,12 +374,22 @@ class NoteWindow(QWidget):
 
     def _update_controls(self) -> None:
         collapsed = bool(self.data["collapsed"])
-        show = (not self.s["hover_controls"]) or self._hover or collapsed
-        for b in (self.btn_new, self.btn_pin, self.btn_menu, self.btn_close):
-            b.setVisible(show)
+        show = (not self.s["hover_controls"]) or self._hover or self.isActiveWindow() or self._menu_open or collapsed
         self.title.setText(self._title_text if collapsed else "")
+        self._chrome_animation.stop()
+        for index, height in enumerate((HEADER_H if show else 0, 44 if show and not collapsed else 0)):
+            animation = self._chrome_animation.animationAt(index)
+            widget = self.header if index == 0 else self.footer
+            animation.setStartValue(widget.maximumHeight())
+            animation.setEndValue(height)
+        self._chrome_animation.start()
         self.grip.shown = show and not collapsed
         self.grip.update()
+
+    def changeEvent(self, e):
+        super().changeEvent(e)
+        if e.type() == QEvent.ActivationChange and hasattr(self, "_chrome_animation"):
+            self._update_controls()
 
     def enterEvent(self, e):
         self._hover = True
@@ -325,7 +403,7 @@ class NoteWindow(QWidget):
 
     # ------------------------------------------------------------ behaviour
     def _refresh_title(self) -> None:
-        self._title_text = "Empty note"
+        self._title_text = "Пустая заметка"
         for line in self.editor.toPlainText().splitlines():
             if line.strip():
                 self._title_text = line.strip()[:60]
@@ -334,6 +412,7 @@ class NoteWindow(QWidget):
             self.title.setText(self._title_text)
 
     def _on_text(self) -> None:
+        self.data["updated_at"] = datetime.now(timezone.utc).isoformat()
         self._refresh_title()
         self.changed.emit()
 
@@ -345,9 +424,12 @@ class NoteWindow(QWidget):
         super().resizeEvent(e)
         self.changed.emit()
 
-    def closeEvent(self, e):  # Alt+F4 just hides; "Delete" removes a note
+    def closeEvent(self, e):
         e.ignore()
+        self.data["is_open"] = False
         self.hide()
+        self.changed.emit()
+        self.closed.emit()
 
     def ensure_on_screen(self) -> None:
         center = self.frameGeometry().center()
@@ -358,6 +440,7 @@ class NoteWindow(QWidget):
         self.move(g.center() - QPoint(self.width() // 2, self.height() // 2))
 
     def focus_editor(self) -> None:
+        self.data["is_open"] = True
         self.show()
         self.raise_()
         self.activateWindow()
@@ -385,7 +468,6 @@ class NoteWindow(QWidget):
     def set_on_top(self, flag: bool) -> None:
         flag = bool(flag)
         self.data["on_top"] = flag
-        self.btn_pin.set_active(flag)
         if bool(self.windowFlags() & Qt.WindowStaysOnTopHint) == flag:
             return
         was_visible = self.isVisible()
@@ -435,6 +517,11 @@ class NoteWindow(QWidget):
         fmt.setFontItalic(not self.editor.currentCharFormat().fontItalic())
         self.editor.mergeCurrentCharFormat(fmt)
 
+    def toggle_underline(self) -> None:
+        fmt = QTextCharFormat()
+        fmt.setFontUnderline(not self.editor.currentCharFormat().fontUnderline())
+        self.editor.mergeCurrentCharFormat(fmt)
+
     def toggle_strike(self) -> None:
         fmt = QTextCharFormat()
         fmt.setFontStrikeOut(not self.editor.currentCharFormat().fontStrikeOut())
@@ -450,9 +537,44 @@ class NoteWindow(QWidget):
             lst.remove(cur.block())
         else:
             cur.createList(QTextListFormat.ListDisc)
+        self._sync_format_buttons()
+
+    def _sync_format_buttons(self, *_args) -> None:
+        fmt = self.editor.currentCharFormat()
+        for button, checked in zip(self.format_buttons, (
+            fmt.fontWeight() >= 600, fmt.fontItalic(), fmt.fontUnderline(), fmt.fontStrikeOut(),
+        )):
+            button.setChecked(checked)
+        self.btn_bullets.set_active(self.editor.textCursor().currentList() is not None)
+
+    def insert_image(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Добавить изображение", "", "Изображения (*.png *.jpg *.jpeg *.bmp *.gif)")
+        if path:
+            self.add_image(path)
+
+    def add_image(self, path: str) -> bool:
+        """Embed image bytes in HTML so notes do not depend on the source file."""
+        reader = QImageReader(path)
+        reader.setAutoTransform(True)
+        image = reader.read()
+        if image.isNull():
+            return False
+        encoded = QByteArray()
+        buffer = QBuffer(encoded)
+        buffer.open(QIODevice.WriteOnly)
+        image.save(buffer, "PNG")
+        fmt = QTextImageFormat()
+        fmt.setName("data:image/png;base64," + bytes(encoded.toBase64()).decode("ascii"))
+        width = min(image.width(), max(100, self.editor.viewport().width() - 32))
+        fmt.setWidth(width)
+        fmt.setHeight(image.height() * width / image.width())
+        self.editor.textCursor().insertImage(fmt)
+        return True
 
     # ------------------------------------------------------------------ menu
     def show_menu(self) -> None:
+        self._menu_open = True
         m = QMenu(self)
         m.setStyleSheet(MENU_QSS)
 
@@ -465,17 +587,18 @@ class NoteWindow(QWidget):
         wa = QWidgetAction(m)
         wa.setDefaultWidget(holder)
         m.addAction(wa)
-        m.addAction("Custom color…", self.pick_color)
+        m.addAction("Другой цвет…", self.pick_color)
+        m.addAction("Список заметок", self.list_requested.emit)
         m.addSeparator()
 
-        a = m.addAction("Always on top")
+        a = m.addAction("Поверх других окон")
         a.setCheckable(True)
         a.setChecked(self.data["on_top"])
         a.triggered.connect(lambda v: self.set_on_top(v))
-        m.addAction("Expand" if self.data["collapsed"] else "Collapse to title bar",
+        m.addAction("Развернуть" if self.data["collapsed"] else "Свернуть до заголовка",
                     lambda: self.set_collapsed(not self.data["collapsed"]))
 
-        tm = m.addMenu("Transparency")
+        tm = m.addMenu("Непрозрачность")
         grp = QActionGroup(tm)
         current = self.opacity()
         for v in (100, 90, 80, 70, 60, 50):
@@ -485,19 +608,20 @@ class NoteWindow(QWidget):
             grp.addAction(act)
             act.triggered.connect(lambda _=False, val=v: self.set_opacity(val))
         tm.addSeparator()
-        tm.addAction("Use default", lambda: self.set_opacity(None))
+        tm.addAction("По умолчанию", lambda: self.set_opacity(None))
 
-        fm = m.addMenu("Text size")
-        fm.addAction("Larger", lambda: self.set_font_size(self.font_size() + 1))
-        fm.addAction("Smaller", lambda: self.set_font_size(self.font_size() - 1))
-        fm.addAction("Use default", lambda: self.set_font_size(None))
+        fm = m.addMenu("Размер текста")
+        fm.addAction("Увеличить", lambda: self.set_font_size(self.font_size() + 1))
+        fm.addAction("Уменьшить", lambda: self.set_font_size(self.font_size() - 1))
+        fm.addAction("По умолчанию", lambda: self.set_font_size(None))
 
         m.addSeparator()
-        m.addAction("Duplicate", lambda: self.duplicate_requested.emit(self))
-        m.addAction("Delete note", lambda: self.delete_requested.emit(self))
+        m.addAction("Создать копию", lambda: self.duplicate_requested.emit(self))
+        m.addAction("Удалить заметку", lambda: self.delete_requested.emit(self))
 
         m.exec(self.btn_menu.mapToGlobal(QPoint(0, self.btn_menu.height() + 2)))
         self.repaint_all()
+        self._menu_open = False
         self._hover = self.rect().contains(self.mapFromGlobal(QCursor.pos()))
         self._update_controls()
 
