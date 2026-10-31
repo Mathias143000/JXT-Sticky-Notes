@@ -210,6 +210,12 @@ class SaveIndicator(QWidget):
         self.setToolTip("Сохранение…")
         self.update()
 
+    def reset(self):
+        self.animation.stop()
+        self.state = "clean"
+        self._phase = 1.0
+        self.update()
+
     def saved(self):
         self.state = "saved"
         self.setToolTip("Сохранено")

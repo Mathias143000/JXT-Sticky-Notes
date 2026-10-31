@@ -262,8 +262,6 @@ class SettingsDialog(QDialog):
                      "Applies to all notes right now. You can still pin or unpin any single note.")
         self._toggle(g, "hover_controls", "Show note controls only on hover",
                      "Keeps notes clean and minimal until your mouse is over them.")
-        self._toggle(g, "confirm_delete", "Confirm before deleting a note",
-                     "Empty notes are always deleted instantly.")
         lay.addStretch(1)
         return page
 

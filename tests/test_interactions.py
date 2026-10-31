@@ -127,7 +127,7 @@ class NoteInteractionsTests(unittest.TestCase):
         self.assertEqual(restored.editor.horizontalScrollBarPolicy(), Qt.ScrollBarAlwaysOff)
 
     def test_save_check_animates_only_after_successful_write(self):
-        controller = self.controller(hidden=True)
+        controller = self.controller()
         note = controller.notes[0]
         note.editor.setPlainText("Save this")
         self.assertEqual(note.save_indicator.state, "pending")

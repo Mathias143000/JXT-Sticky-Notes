@@ -15,6 +15,7 @@ from PySide6.QtGui import (
     QGuiApplication,
     QKeySequence,
     QPainter,
+    QPainterPath,
     QPalette,
     QPen,
     QShortcut,
@@ -71,6 +72,8 @@ class Card(QFrame):
         self.bg = QColor("#FFF1A8")
         self.border = QColor(0, 0, 0, 22)
         self.radius = 14
+        self.header_color = None
+        self.header_height = 0
 
     def set_look(self, bg: QColor, border: QColor, radius: int) -> None:
         self.bg, self.border, self.radius = bg, border, radius
@@ -79,9 +82,17 @@ class Card(QFrame):
     def paintEvent(self, _):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(self.rect()).adjusted(.5, .5, -.5, -.5), self.radius, self.radius)
+        p.fillPath(path, self.bg)
+        if self.header_color is not None and self.header_height:
+            p.save()
+            p.setClipPath(path)
+            p.fillRect(QRectF(0, 0, self.width(), self.header_height), self.header_color)
+            p.restore()
         p.setPen(QPen(self.border, 1))
-        p.setBrush(self.bg)
-        p.drawRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5), self.radius, self.radius)
+        p.setBrush(Qt.NoBrush)
+        p.drawPath(path)
 
 
 class PaperWindow(QWidget):
@@ -129,9 +140,14 @@ class PaperWindow(QWidget):
         self.update()
 
     def paintEvent(self, event):
+        painter = QPainter(self)
+        # Clear the old alpha on every invalidated region, including old corners
+        # left behind by collapse/expand, resizing, or changing corner radius.
+        painter.setCompositionMode(QPainter.CompositionMode_Source)
+        painter.fillRect(event.rect(), Qt.transparent)
+        painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
         if not self._shadow_enabled:
             return
-        painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setBrush(Qt.NoBrush)
         surface = QRectF(self.rect()).adjusted(M, M, -M, -M).translated(0, 2)
@@ -214,6 +230,7 @@ class HeaderBar(QWidget):
 
 class NoteWindow(PaperWindow):
     changed = Signal()
+    content_changed = Signal()
     new_requested = Signal()
     delete_requested = Signal(object)
     duplicate_requested = Signal(object)
@@ -224,6 +241,7 @@ class NoteWindow(PaperWindow):
         super().__init__()
         self.data = data
         self.s = settings
+        self._loading = True
         self._hover = False
         self._menu_open = False
         self._title_text = ""
@@ -250,6 +268,8 @@ class NoteWindow(PaperWindow):
         self.set_collapsed(bool(data["collapsed"]), init=True)
         self.apply_style()
         self._sync_format_buttons()
+        self._last_content_revision = self.editor.document().revision()
+        self._loading = False
 
     # ------------------------------------------------------------------ UI
     def _build(self) -> None:
@@ -266,6 +286,7 @@ class NoteWindow(PaperWindow):
 
         self.header = HeaderBar()
         self.header.setObjectName("noteHeader")
+        self.header.installEventFilter(self)
         self.header.setAttribute(Qt.WA_StyledBackground)
         self.header.setMinimumHeight(0)
         self.header.setMaximumHeight(HEADER_H)
@@ -391,14 +412,19 @@ class NoteWindow(PaperWindow):
         text = auto_text(bg) if s["auto_text"] else s["text_color"]
         border = QColor(255, 255, 255, 26) if is_dark(bg) else QColor(0, 0, 0, 22)
         fill = QColor(bg)
-        fill.setAlphaF(max(0.0, min(1.0, self.opacity() / 100)))
         self.card.set_look(fill, border, int(s["corner_radius"]))
+        # Composite the finished window once; nested alpha backgrounds otherwise
+        # produce different opacity in the header, editor, and options panel.
+        self.setWindowOpacity(max(.3, min(1.0, self.opacity() / 100)))
+        self.editor.set_surface(bg, text)
         header_color = QColor(bg)
         hue, saturation, value, _ = header_color.getHsvF()
         header_color.setHsvF(hue, min(1.0, saturation * 1.8), value)
+        self.card.header_color = header_color
+        self.card.header_height = self.header.height()
         self.card.setStyleSheet(
             f"""
-            QWidget#noteHeader {{ background: {rgba(header_color.name(), self.opacity() / 100)}; }}
+            QWidget#noteHeader {{ background: transparent; }}
             QWidget#noteFooter {{ background: transparent; border: none; }}
             QScrollArea#noteOptions, QWidget#optionsBody {{ background: {bg}; color: {text}; border: none; }}
             QCheckBox, QPushButton, QLineEdit {{ color: {text}; background: transparent; font: 10pt 'Segoe UI'; }}
@@ -407,6 +433,7 @@ class NoteWindow(PaperWindow):
             QPushButton {{ border: none; padding: 7px; text-align: left; }}
             QPushButton:hover {{ background: {rgba(text, 0.08)}; }}
             QLineEdit {{ border-bottom: 1px solid {rgba(text, 0.25)}; padding: 4px; }}
+            QFrame#optionsDivider {{ background: {rgba(text, 0.15)}; border: none; }}
             QToolButton {{ color: {text}; background: transparent; border: none; }}
             QToolButton:hover, QToolButton:checked {{ background: {rgba(text, 0.10)}; }}
             QTextEdit {{ background: transparent; border: none; color: {text};
@@ -451,7 +478,8 @@ class NoteWindow(PaperWindow):
 
     def _update_controls(self) -> None:
         collapsed = bool(self.data["collapsed"])
-        show = (not self.s["hover_controls"]) or self._hover or self.isActiveWindow() or self._menu_open or collapsed
+        show = ((not self.s["hover_controls"]) or collapsed
+                or (self.isVisible() and (self._hover or self.isActiveWindow() or self._menu_open)))
         self.title.setText(self._title_text if collapsed else "")
         self._chrome_animation.stop()
         for index, height in enumerate((HEADER_H if show else 0, 38 if show and not collapsed else 0)):
@@ -470,6 +498,9 @@ class NoteWindow(PaperWindow):
     def eventFilter(self, obj, event):
         if obj is getattr(self, "card", None) and event.type() == QEvent.Resize:
             QTimer.singleShot(0, self._position_options)
+        if obj is getattr(self, "header", None) and event.type() == QEvent.Resize:
+            self.card.header_height = self.header.height()
+            self.card.update()
         return super().eventFilter(obj, event)
 
     def enterEvent(self, e):
@@ -493,8 +524,15 @@ class NoteWindow(PaperWindow):
             self.title.setText(self._title_text)
 
     def _on_text(self) -> None:
+        if self._loading:
+            return
+        revision = self.editor.document().revision()
+        if revision == self._last_content_revision:
+            return
+        self._last_content_revision = revision
         self.data["updated_at"] = datetime.now(timezone.utc).isoformat()
         self._refresh_title()
+        self.content_changed.emit()
         self.changed.emit()
 
     def moveEvent(self, e):
@@ -513,6 +551,11 @@ class NoteWindow(PaperWindow):
         self.hide()
         self.changed.emit()
         self.closed.emit()
+
+    def hideEvent(self, event):
+        if hasattr(self, "save_indicator"):
+            self.save_indicator.reset()
+        super().hideEvent(event)
 
     def ensure_on_screen(self) -> None:
         center = self.frameGeometry().center()
@@ -536,6 +579,7 @@ class NoteWindow(PaperWindow):
             self._expanded_h = self.height()
         self.data["collapsed"] = flag
         if flag:
+            self.save_indicator.reset()
             self._menu_open = False
             self.btn_menu.kind = "menu"
             self.btn_menu.set_active(False)
@@ -680,15 +724,13 @@ class NoteWindow(PaperWindow):
         for widget in (smaller, self.font_label, larger):
             font_row.addWidget(widget)
         layout.addLayout(font_row)
-        for text, callback in (
-            ("Все записки", self.list_requested.emit),
-            ("Создать копию", lambda: self.duplicate_requested.emit(self)),
-            ("Свернуть заметку", lambda: self.set_collapsed(True)),
-            ("Удалить заметку", lambda: self.delete_requested.emit(self)),
-        ):
-            button = QPushButton(text)
-            button.clicked.connect(callback)
-            layout.addWidget(button)
+        divider = QFrame()
+        divider.setObjectName("optionsDivider")
+        divider.setFixedHeight(1)
+        layout.addWidget(divider)
+        button = QPushButton("Все записки")
+        button.clicked.connect(self.list_requested.emit)
+        layout.addWidget(button)
         layout.addStretch()
         self.options_panel.setWidget(body)
         self.options_scroll = SmoothScroll(self.options_panel)
@@ -719,7 +761,9 @@ class NoteWindow(PaperWindow):
     def _position_options(self):
         if hasattr(self, "options_panel"):
             top = max(HEADER_H, self.header.height())
-            self.options_panel.setGeometry(1, top, max(0, self.card.width() - 2), max(0, self.card.height() - top - 1))
+            inset = max(1, int(self.s["corner_radius"]))
+            self.options_panel.setGeometry(inset, top, max(0, self.card.width() - 2 * inset),
+                                           max(0, self.card.height() - top - inset))
             if self._menu_open:
                 self.options_panel.raise_()
 
@@ -749,6 +793,6 @@ class NoteWindow(PaperWindow):
 
     def _html(self) -> str:
         """Rich text as HTML, minus the body font so Settings can still control the font."""
-        if not self.editor.toPlainText():
+        if not self.editor.toPlainText() and not self.editor.document().begin().textList():
             return ""
         return re.sub(r'<body style="[^"]*">', "<body>", self.editor.toHtml(), count=1)

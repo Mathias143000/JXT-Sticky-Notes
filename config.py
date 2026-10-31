@@ -20,7 +20,6 @@ DEFAULTS: dict = {
     "start_in_tray": True,
     "always_on_top": False,
     "hover_controls": True,
-    "confirm_delete": True,
     # Appearance
     "default_color": "#FFF7CE",
     "auto_text": True,

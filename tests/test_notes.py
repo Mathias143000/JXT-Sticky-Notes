@@ -154,6 +154,7 @@ class NotesLifecycleTests(unittest.TestCase):
         QTest.qWait(220)
         self.assertEqual(note.header.maximumHeight(), 0)
         self.assertEqual(note.footer.maximumHeight(), 0)
+        note.focus_editor()
         note._hover = True
         note._update_controls()
         QTest.qWait(220)
@@ -166,7 +167,6 @@ class NotesLifecycleTests(unittest.TestCase):
 
     def test_delete_and_duplicate_are_distinct_from_close(self):
         controller = self.controller(hidden=True)
-        controller.s._data["confirm_delete"] = False
         first = controller.notes[0]
         first.editor.setPlainText("Оригинал")
         first.close()
@@ -189,12 +189,14 @@ class NotesLifecycleTests(unittest.TestCase):
         with patch("app.write_json_atomic", side_effect=OSError("Disk full")), \
                 patch.object(controller.tray, "showMessage") as notification:
             controller.save_now()
-            self.assertIn("Не удалось сохранить", controller.library.status.text())
+            self.assertTrue(controller._save_failed)
+            self.assertEqual(note.save_indicator.state, "error")
             self.assertEqual(note.editor.toPlainText(), "Не потерять")
             notification.assert_called_once()
         controller.save_now()
         self.assertIn("Не потерять", self.saved()["notes"][0]["text"])
-        self.assertEqual(controller.library.status.text(), "Все изменения сохранены")
+        self.assertFalse(controller._save_failed)
+        self.assertFalse(hasattr(controller.library, "status"))
 
     def test_tray_quit_exits_event_loop_and_preserves_open_state(self):
         controller = self.controller()

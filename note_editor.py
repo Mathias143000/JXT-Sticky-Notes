@@ -1,9 +1,10 @@
 """Rich note editing: formatting, native checkboxes, and embedded clipboard images."""
 from __future__ import annotations
 
-from PySide6.QtCore import QByteArray, QBuffer, QIODevice, QRect, Qt
+from PySide6.QtCore import QByteArray, QBuffer, QIODevice, QPointF, QRectF, Qt
 from PySide6.QtGui import (
-    QImage, QImageReader, QTextBlockFormat, QTextCharFormat, QTextCursor,
+    QColor, QFontMetricsF, QImage, QImageReader, QPainter, QPainterPath, QPen,
+    QTextBlockFormat, QTextCharFormat, QTextCursor,
     QTextImageFormat, QTextListFormat,
 )
 from PySide6.QtWidgets import QTextEdit
@@ -21,6 +22,72 @@ class NoteEditor(QTextEdit):
         self.smooth_scroll = SmoothScroll(self)
         self._pressed_task = None
         self._checkbox_press = False
+        self.paper_color = QColor("#FFF7CE")
+        self.marker_color = QColor("#23262B")
+        self.textChanged.connect(self.viewport().update)
+
+    def set_surface(self, background, foreground):
+        self.paper_color = QColor(background)
+        self.marker_color = QColor(foreground)
+        self.viewport().update()
+
+    def marker_rect(self, block):
+        cursor_rect = self.cursorRect(QTextCursor(block))
+        layout = block.layout()
+        if not layout.lineCount():
+            return QRectF()
+        first = block.begin()
+        char_format = first.fragment().charFormat() if not first.atEnd() else block.charFormat()
+        font = char_format.font().resolve(self.document().defaultFont())
+        metrics = QFontMetricsF(font, self.viewport())
+        ink = metrics.tightBoundingRect("X")
+        baseline = cursor_rect.top() + layout.lineAt(0).ascent()
+        center = baseline + ink.center().y()
+        side = max(10.0, min(15.0, ink.height()))
+        return QRectF(cursor_rect.left() - side - 7, center - side / 2, side, side)
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        painter = QPainter(self.viewport())
+        painter.setRenderHint(QPainter.Antialiasing)
+        block = self.cursorForPosition(self.viewport().rect().topLeft()).block()
+        while block.isValid():
+            line_rect = self.cursorRect(QTextCursor(block))
+            if line_rect.top() > self.viewport().height():
+                break
+            text_list = block.textList()
+            if text_list and line_rect.bottom() >= 0:
+                marker = block.blockFormat().marker()
+                style = text_list.format().style()
+                if marker != MARKER.NoMarker or style in (
+                    QTextListFormat.ListDisc, QTextListFormat.ListCircle, QTextListFormat.ListSquare,
+                ):
+                    # Replace the font-dependent native marker in its gutter.
+                    # The rectangle and the click target use the same text baseline.
+                    gutter = QRectF(max(0, line_rect.left() - max(self.document().indentWidth(), line_rect.height() + 6)),
+                                    line_rect.top() - 3, 0, line_rect.height() + 6)
+                    gutter.setRight(line_rect.left() - 3)
+                    painter.fillRect(gutter, self.paper_color)
+                    rect = self.marker_rect(block)
+                    painter.setPen(QPen(self.marker_color, 1.1, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+                    painter.setBrush(Qt.NoBrush)
+                    if marker != MARKER.NoMarker:
+                        painter.drawRoundedRect(rect, 1.3, 1.3)
+                        if marker == MARKER.Checked:
+                            path = QPainterPath()
+                            path.moveTo(rect.left() + 2.5, rect.center().y())
+                            path.lineTo(rect.left() + rect.width() * .43, rect.bottom() - 3)
+                            path.lineTo(rect.right() - 2, rect.top() + 3)
+                            painter.drawPath(path)
+                    else:
+                        size = max(3.0, rect.height() * .29)
+                        dot = QRectF(rect.center() - QPointF(size / 2, size / 2), rect.center() + QPointF(size / 2, size / 2))
+                        painter.setBrush(Qt.NoBrush if style == QTextListFormat.ListCircle else self.marker_color)
+                        if style == QTextListFormat.ListSquare:
+                            painter.drawRect(dot)
+                        else:
+                            painter.drawEllipse(dot)
+            block = block.next()
 
     def selected_blocks(self):
         cursor = self.textCursor()
@@ -115,8 +182,7 @@ class NoteEditor(QTextEdit):
         self._checkbox_press = False
         marker = block.blockFormat().marker()
         if marker in (MARKER.Checked, MARKER.Unchecked) and event.button() == Qt.LeftButton and not self.isReadOnly():
-            rect = self.cursorRect(QTextCursor(block))
-            box = QRect(rect.left() - rect.height() - 5, rect.top(), rect.height() + 5, rect.height())
+            box = self.marker_rect(block).adjusted(-3, -3, 3, 3)
             if box.contains(event.position().toPoint()):
                 cursor = QTextCursor(block)
                 cursor.beginEditBlock()

@@ -142,12 +142,6 @@ class NotesListWindow(PaperWindow):
         self.empty.setWordWrap(True)
         self.empty.setStyleSheet("color: #707070; font-size: 14px; padding: 28px 0;")
         body.addWidget(self.empty, 1)
-        bottom = QHBoxLayout()
-        self.status = QLabel("Все изменения сохранены")
-        self.status.setStyleSheet("font-size: 11px; color: #777777;")
-        self.status.setWordWrap(True)
-        bottom.addWidget(self.status, 1)
-        body.addLayout(bottom)
 
         self.btn_new.clicked.connect(self.new_requested.emit)
         self.btn_settings.clicked.connect(self.settings_requested.emit)
@@ -205,9 +199,6 @@ class NotesListWindow(PaperWindow):
         menu.addSeparator()
         menu.addAction("Удалить заметку", lambda: self.delete_requested.emit(note_id))
         menu.exec(self.list.viewport().mapToGlobal(pos))
-
-    def set_save_status(self, text: str) -> None:
-        self.status.setText(text)
 
     def closeEvent(self, event):
         event.ignore()

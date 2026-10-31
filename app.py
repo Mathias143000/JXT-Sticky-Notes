@@ -11,7 +11,7 @@ import traceback
 from PySide6.QtCore import QObject, Qt, QTimer
 from PySide6.QtGui import QAction, QGuiApplication
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
-from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
+from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
 import autostart
 from config import APP_NAME, APP_ID, Settings, data_dir, read_json, write_json_atomic
@@ -132,7 +132,8 @@ class Controller(QObject):
 
     def _add(self, data: dict) -> NoteWindow:
         w = NoteWindow(data, self.s)
-        w.changed.connect(lambda note=w: self._note_changed(note))
+        w.changed.connect(self.save_soon)
+        w.content_changed.connect(lambda note=w: self._note_content_changed(note))
         w.new_requested.connect(self.new_note)
         w.delete_requested.connect(self.delete_note)
         w.duplicate_requested.connect(self.duplicate_note)
@@ -164,16 +165,6 @@ class Controller(QObject):
         self.save_soon()
 
     def delete_note(self, w: NoteWindow) -> None:
-        if self.s["confirm_delete"] and w.editor.toPlainText().strip():
-            box = QMessageBox(w)
-            box.setIcon(QMessageBox.Question)
-            box.setWindowTitle("Удаление заметки")
-            box.setText("Удалить эту заметку?")
-            box.setInformativeText("Это действие нельзя отменить.")
-            box.setStandardButtons(QMessageBox.Yes | QMessageBox.Cancel)
-            box.setDefaultButton(QMessageBox.Cancel)
-            if box.exec() != QMessageBox.Yes:
-                return
         if w in self.notes:
             self.notes.remove(w)
         self._dirty_notes.discard(w)
@@ -246,12 +237,10 @@ class Controller(QObject):
     def save_soon(self) -> None:
         self._save_timer.start()
         self._library_timer.start()
-        self.library.set_save_status("Сохранение…")
 
-    def _note_changed(self, note) -> None:
+    def _note_content_changed(self, note) -> None:
         self._dirty_notes.add(note)
         note.save_indicator.pending()
-        self.save_soon()
 
     def save_now(self) -> None:
         self._save_timer.stop()
@@ -260,13 +249,14 @@ class Controller(QObject):
                 "version": 2, "next_color_index": self._next_color_index,
                 "notes": [w.snapshot() for w in self.notes],
             })
-            self.library.set_save_status("Все изменения сохранены")
             self._save_failed = False
             for note in self._dirty_notes:
-                note.save_indicator.saved()
+                if note.isVisible() and not note.data["collapsed"]:
+                    note.save_indicator.saved()
+                else:
+                    note.save_indicator.reset()
             self._dirty_notes.clear()
         except OSError as error:
-            self.library.set_save_status("Не удалось сохранить заметки. Проверьте доступ к папке данных.")
             if not self._save_failed:
                 self.tray.showMessage("Не удалось сохранить заметки", str(error), QSystemTrayIcon.Warning)
             self._save_failed = True
