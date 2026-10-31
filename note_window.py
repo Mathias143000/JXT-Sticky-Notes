@@ -29,7 +29,6 @@ from PySide6.QtWidgets import (
     QColorDialog,
     QFileDialog,
     QFrame,
-    QGraphicsDropShadowEffect,
     QHBoxLayout,
     QLabel,
     QMenu,
@@ -90,6 +89,40 @@ class Card(QFrame):
         p.drawRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5), self.radius, self.radius)
 
 
+class PaperWindow(QWidget):
+    """Paint the shadow separately, without caching or resampling child text.
+
+    QGraphicsDropShadowEffect on a container corrupts partial text repaints on
+    translucent Windows windows at fractional DPI. Painting only the outer
+    shadow here keeps editors, lists, and controls on Qt's normal paint path.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self._shadow_enabled = True
+        self._shadow_radius = 0
+
+    def set_shadow(self, enabled: bool, radius: int = 0) -> None:
+        self._shadow_enabled = bool(enabled)
+        self._shadow_radius = radius
+        self.update()
+
+    def paintEvent(self, event):
+        if not self._shadow_enabled:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setBrush(Qt.NoBrush)
+        surface = QRectF(self.rect()).adjusted(M, M, -M, -M).translated(0, 2)
+        for spread in range(M - 2, 0, -1):
+            alpha = round(48 * (1 - spread / (M - 1)) ** 2)
+            painter.setPen(QPen(QColor(0, 0, 0, alpha), 1.5))
+            radius = self._shadow_radius + spread
+            painter.drawRoundedRect(
+                surface.adjusted(-spread, -spread, spread, spread), radius, radius)
+
+
 class HeaderBar(QWidget):
     """Top bar: drag to move, double-click to collapse."""
 
@@ -141,7 +174,7 @@ class Grip(QSizeGrip):
             p.drawLine(QPointF(w - i, h - 2.5), QPointF(w - 2.5, h - i))
 
 
-class NoteWindow(QWidget):
+class NoteWindow(PaperWindow):
     changed = Signal()
     new_requested = Signal()
     delete_requested = Signal(object)
@@ -158,7 +191,6 @@ class NoteWindow(QWidget):
         self._title_text = ""
         self._expanded_h = int(data["h"])
 
-        self.setAttribute(Qt.WA_TranslucentBackground)
         self.setWindowTitle(APP_NAME)
         self.setMinimumSize(MIN_W, MIN_H)
         flags = Qt.FramelessWindowHint | Qt.Tool | Qt.NoDropShadowWindowHint
@@ -184,11 +216,6 @@ class NoteWindow(QWidget):
     def _build(self) -> None:
         self.card = Card(self)
         self.card.setObjectName("card")
-        self.shadow = QGraphicsDropShadowEffect(self.card)
-        self.shadow.setBlurRadius(26)
-        self.shadow.setOffset(0, 5)
-        self.shadow.setColor(QColor(0, 0, 0, 90))
-        self.card.setGraphicsEffect(self.shadow)
         outer = QVBoxLayout(self)
         outer.setContentsMargins(M, M, M, M)
         outer.addWidget(self.card)
@@ -358,7 +385,7 @@ class NoteWindow(QWidget):
         self.grip.color = QColor(text)
         self.grip.update()
 
-        self.shadow.setEnabled(bool(s["shadow"]))
+        self.set_shadow(bool(s["shadow"]), int(s["corner_radius"]))
         self.repaint_all()
         self._update_controls()
 

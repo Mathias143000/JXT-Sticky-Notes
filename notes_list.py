@@ -6,11 +6,11 @@ from datetime import datetime
 from PySide6.QtCore import QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QKeySequence, QPainter, QPainterPath, QPen, QShortcut
 from PySide6.QtWidgets import (
-    QAbstractItemView, QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
-    QMenu, QStyle, QStyledItemDelegate, QVBoxLayout, QWidget,
+    QAbstractItemView, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
+    QMenu, QStyle, QStyledItemDelegate, QVBoxLayout,
 )
 
-from note_window import Card, Grip, HeaderBar, M
+from note_window import Card, Grip, HeaderBar, M, PaperWindow
 from themes import MENU_QSS, auto_text
 from widgets import IconButton
 
@@ -74,7 +74,7 @@ class NoteDelegate(QStyledItemDelegate):
         painter.restore()
 
 
-class NotesListWindow(QWidget):
+class NotesListWindow(PaperWindow):
     new_requested = Signal()
     settings_requested = Signal()
     open_requested = Signal(str)
@@ -84,7 +84,6 @@ class NotesListWindow(QWidget):
         super().__init__()
         self.setWindowTitle("Записки")
         self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
-        self.setAttribute(Qt.WA_TranslucentBackground)
         self.setMinimumSize(320, 400)
         self.resize(404, 710)
         self._notes = []
@@ -103,11 +102,6 @@ class NotesListWindow(QWidget):
         outer.setContentsMargins(M, M, M, M)
         self.card = Card()
         self.card.set_look(QColor("white"), QColor("#B5B5B5"), 0)
-        shadow = QGraphicsDropShadowEffect(self.card)
-        shadow.setBlurRadius(18)
-        shadow.setOffset(0, 3)
-        shadow.setColor(QColor(0, 0, 0, 65))
-        self.card.setGraphicsEffect(shadow)
         outer.addWidget(self.card)
         body = QVBoxLayout(self.card)
         body.setContentsMargins(15, 0, 15, 8)

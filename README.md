@@ -113,6 +113,15 @@ python -m unittest discover -s tests -v
 
 The tests use Qt's offscreen platform and temporary storage. They do not change real notes or Windows startup registration. They cover close/reopen across restarts, search, autosave, legacy data, formatting and embedded images, folding headers, duplication/deletion, and save errors.
 
+To check actual Windows rendering, including text artifacts at fractional display scales:
+
+```bash
+python -m pip install -r requirements-build.txt
+python tests/windows_rendering_check.py
+```
+
+This opens temporary fixture windows and compares their on-screen pixels before and after editing, search, collapse/expand, and resize. It does not load your notes. Unlike `QWidget.grab()`, this capture does not force a full repaint that could hide stale pixels. Shadows are painted separately from the content so Qt does not cache and resample text through a graphics effect.
+
 ## Project structure
 
 ```
